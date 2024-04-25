@@ -28,7 +28,7 @@ use std::task::{Context, Poll};
 use tower::Service;
 
 use crate::{buffer4::Buffer, BoxError};
-use tendermint::v0_37::abci::{
+use cometbft::abci::v1::{
     ConsensusRequest, ConsensusResponse, InfoRequest, InfoResponse, MempoolRequest,
     MempoolResponse, Request, Response, SnapshotRequest, SnapshotResponse,
 };

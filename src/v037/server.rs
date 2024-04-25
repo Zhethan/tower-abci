@@ -13,14 +13,17 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use tower::{Service, ServiceExt};
 
 use crate::BoxError;
-use tendermint::abci::MethodKind;
+use cometbft::abci::MethodKind;
 
 #[cfg(target_family = "unix")]
 use std::path::Path;
 #[cfg(target_family = "unix")]
 use tokio::net::UnixListener;
 
-use tendermint::v0_37::abci::{
+use cometbft_proto::abci::v1::Request as ProtoRequest;
+use cometbft_proto::abci::v1::Response as ProtoResponse;
+
+use cometbft::abci::v1::{
     ConsensusRequest, ConsensusResponse, InfoRequest, InfoResponse, MempoolRequest,
     MempoolResponse, Request, Response, SnapshotRequest, SnapshotResponse,
 };
@@ -213,13 +216,11 @@ where
     ) -> Result<(), BoxError> {
         tracing::info!("listening for requests");
 
-        use tendermint_proto::v0_37::abci as pb;
-
         let (mut request_stream, mut response_sink) = {
             use crate::v037::codec::{Decode, Encode};
             (
-                FramedRead::new(read, Decode::<pb::Request>::default()),
-                FramedWrite::new(write, Encode::<pb::Response>::default()),
+                FramedRead::new(read, Decode::<ProtoRequest>::default()),
+                FramedWrite::new(write, Encode::<ProtoResponse>::default()),
             )
         };
 
