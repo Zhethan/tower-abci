@@ -1,5 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 
+use cometbft::abci::request::CheckTxKind;
+use cometbft::Time;
 use futures::future::{FutureExt, TryFutureExt};
 use futures::sink::SinkExt;
 use futures::stream::{FuturesOrdered, StreamExt};
@@ -179,7 +181,7 @@ where
                         snapshot: self.snapshot.clone(),
                     };
                     let (read, write) = socket.into_split();
-                    tokio::spawn(async move { conn.run(read, write).await.unwrap() });
+                    tokio::spawn(async move { conn.run(read, write).await.unwrap(); });
                 }
                 Err(e) => {
                     tracing::error!({ %e }, "error accepting new connection");
@@ -229,11 +231,17 @@ where
         loop {
             select! {
                 req = request_stream.next() => {
-                    let proto = match req.transpose()? {
+                    let proto: ProtoRequest = match req.transpose()? {
                         Some(proto) => proto,
                         None => return Ok(()),
                     };
-                    let request = Request::try_from(proto)?;
+
+                    // NOTE: this blows up for prepare_proposal, process_proposal, and check_tx. To
+                    // fix this, a hack called `from_proto`.
+
+                    // let request = Request::try_from(proto)?;
+                    let request = from_proto(proto);
+
                     tracing::debug!(?request, "new request");
                     match request.kind() {
                         MethodKind::Consensus => {
@@ -282,4 +290,65 @@ where
             }
         }
     }
+}
+
+fn from_proto(req: ProtoRequest) -> Request {
+    req.clone().value.map(|value| {
+        match value {
+            // requests that break
+            cometbft_proto::abci::v1::request::Value::CheckTx(check_tx) => {
+                // NOTE: type is the field that breaks CheckTx here. The issue is that
+                // `CheckTxType` in `cometbft_proto` has three fields.
+                //
+                // see: https://docs.rs/cometbft-proto/0.1.0-alpha.2/cometbft_proto/abci/v1/enum.CheckTxType.html
+                //
+                // while `CheckTxKind` in `cometbft` only has 2.
+                //
+                // see: https://docs.rs/cometbft/0.1.0-alpha.2/cometbft/abci/request/enum.CheckTxKind.html
+                //
+                // As a temporary, hack, we just consider any number greater than 0 to mean "Recheck".
+                Request::CheckTx(cometbft::abci::request::CheckTx {
+                    tx: check_tx.tx,
+                    kind: if check_tx.r#type > 0 { CheckTxKind::Recheck } else { CheckTxKind::New }
+                })
+            },
+            cometbft_proto::abci::v1::request::Value::PrepareProposal(prepare_proposal) => {
+                Request::PrepareProposal(cometbft::abci::request::PrepareProposal {
+                    max_tx_bytes: prepare_proposal.max_tx_bytes,
+                    txs: prepare_proposal.txs,
+                    local_last_commit: prepare_proposal.local_last_commit.map(TryInto::try_into).transpose().unwrap(),
+                    misbehavior: prepare_proposal.misbehavior.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>().unwrap(),
+                    height: prepare_proposal.height.try_into().unwrap(),
+                    time: prepare_proposal.time.map(|time| time.try_into().unwrap()).unwrap_or(Time::unix_epoch()),
+                    next_validators_hash: prepare_proposal.next_validators_hash.try_into().unwrap(),
+
+                    // NOTE: this is the field that breaks in the original implementation.
+                    //
+                    // see: https://docs.rs/cometbft/0.1.0-alpha.2/src/cometbft/account.rs.html#51
+                    //
+                    // the `abci-cli` never sends any data in the `proposer_address`, and so the
+                    // conversion function fails.
+                    proposer_address: cometbft::account::Id::new([0; 20]),
+                })
+            },
+
+            cometbft_proto::abci::v1::request::Value::ProcessProposal(process_proposal) => {
+                Request::ProcessProposal(cometbft::abci::request::ProcessProposal {
+                    txs: process_proposal.txs,
+                    proposed_last_commit: process_proposal.proposed_last_commit.map(TryInto::try_into).transpose().unwrap(),
+                    misbehavior: process_proposal.misbehavior.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>().unwrap(),
+                    hash: process_proposal.hash.try_into().unwrap(),
+                    height: process_proposal.height.try_into().unwrap(),
+                    time: process_proposal.time.map(|ts| ts.try_into().unwrap()).unwrap_or(Time::unix_epoch()),
+                    next_validators_hash: process_proposal.next_validators_hash.try_into().unwrap(),
+
+                    // NOTE: same as above.
+                    proposer_address: cometbft::account::Id::new([0; 20]),
+                })
+            },
+
+            // requests that work
+            _ => Request::try_from(req).unwrap()
+        }
+    }).expect("no request was passed")
 }
