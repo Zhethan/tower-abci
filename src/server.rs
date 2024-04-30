@@ -219,7 +219,7 @@ where
         tracing::info!("listening for requests");
 
         let (mut request_stream, mut response_sink) = {
-            use crate::v037::codec::{Decode, Encode};
+            use crate::codec::{Decode, Encode};
             (
                 FramedRead::new(read, Decode::<ProtoRequest>::default()),
                 FramedWrite::new(write, Encode::<ProtoResponse>::default()),
