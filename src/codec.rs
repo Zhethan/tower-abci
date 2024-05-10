@@ -31,7 +31,7 @@ impl<M: prost::Message + Default> Decoder for Decode<M> {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.state {
             DecodeState::Head => {
-                tracing::trace!(?src, "decoding head");
+                tracing::trace!(?src, "LOL decoding head");
 
                 // we don't use decode_varint directly, because it advances the
                 // buffer regardless of success, but Decoder assumes that when
