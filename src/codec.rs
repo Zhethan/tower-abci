@@ -50,7 +50,8 @@ impl<M: prost::Message + Default> Decoder for Decode<M> {
                         prost::encoding::decode_varint(src).unwrap() as usize
                     }
                     Err(_) => {
-                        tracing::trace!(?self.state, src.len = src.len(), "waiting for header data");
+                        tracing::trace!(?self.state, src.len = src.len(), "waiting for header dataAAAAAAAAA");
+                        tracing::debug!("bruh ");
                         return Ok(None);
                     }
                 };
